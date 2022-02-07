@@ -1,0 +1,190 @@
+-- Interogarea 1
+-- Sa se afiseze denumirea si pretul fiecarui produs comandat din comanda a carui numar este dat de la tastatura
+select denumire, pret
+from produse_oiv
+where id_produs in (select id_produs
+                    from produse_comandate_oiv
+                    where id_comanda = 'comanda_' || &nr_comanda);
+-- subcerere in where
+
+-- Interogarea 2
+-- Sa se afiseze numarul comenzilor a caror valoare este egala sau depaseste o suma data de la tastatura.
+select sum(cantitate * pret) suma, id_comanda
+from produse_comandate_oiv prod_com join produse_oiv prod on (prod_com.id_produs = prod.id_produs)
+group by id_comanda
+having sum(cantitate * pret) >= &suma_minima;
+-- sum, having, group by
+
+
+-- Interogarea 3
+-- Sa se afiseze alfabetic dupa numele de familie date despre clientii care au plasat comenzi in anul curent.
+select id_client ID, nume Nume, nvl(prenume, '-') Prenume, nvl(varsta, 0) Varsta, nvl(oras, '-') Oras
+from clienti_oiv
+where id_client in (select id_client
+                    from comenzi_oiv
+                    where to_char(data_comanda, 'YEAR') = to_char(sysdate, 'YEAR'))
+order by nume;
+-- nvl, subcerere in where, sydate, to_char
+
+
+-- Interogarea 4
+-- Sa se afisezee denumirea produsului cu cea mai mare cantitate comandata.
+select denumire "Cel mai comandat produs"
+from produse_oiv
+where id_produs in (
+    select id_produs 
+    from produse_comandate_oiv 
+    where cantitate in (select max(cantitate) from produse_comandate_oiv)
+);
+-- max, subcerere in where
+
+
+-- Interogarea 5
+-- Sa se afiseze strada si numarul adreselor de livrare din Bucuresti si adresa completa pentru cele din alte orase
+select id_adresa_livrare, decode(upper(oras), 'BUCURESTI', strada || decode(nvl(numar, -1), -1, ' (nu se cunoaste numarul strazii)', ', nr. ' || numar),
+                                 oras || ', str. ' || strada || decode(nvl(numar, -1), -1, ' (nu se cunoaste numarul strazii)', ', nr. ' || numar)) Adresa
+from adrese_livrare_oiv;
+-- decode, upper, nvl
+
+
+-- Interogarea 6
+-- Sa se afiseze date despre produsele cu pretul pretul mediu de achizitionare mai mic decat 50 
+-- de lei, excluzandu-le pe cele din categoria "Prajituri cu branza" sau pe cele fara categorie
+select id_produs "ID produs", prod.denumire "Denumire produs", round(avg(pret_achizitie), 2) "Pret de achizitie mediu", cat.denumire "Denumire categorie"
+from
+  (select id_produs
+  from istoric_aprovizionare_oiv
+  group by id_produs
+  having round(avg(pret_achizitie), 2) < 50
+  
+  minus
+  
+  select id_produs
+  from produse_oiv
+  where id_categorie = (select unique id_categorie
+                         from categorii_produse_oiv
+                         where lower(denumire) = 'prajituri cu branza')
+       or id_categorie is null) query_cerinta
+
+  join istoric_aprovizionare_oiv ist on (query_cerinta.id_produs = ist.id_produs)
+  join produse_oiv prod on (query_cerinta.id_produs = prod.id_produs)
+  join categorii_produse_oiv cat on (prod.id_categorie = cat.id_categorie)
+  group by id_produs, prod.denumire, cat.denumire;
+
+-- round, avg, subcerere in from si in where, group by, lower, join
+
+
+-- Interogare 7
+-- Sa se afiseze denumirea furnizorilor de la care s-au comandat mai mult de 100 de produse
+select id_furnizor "ID furnizor", sum(cantitate) "Total cantitate furnizata", (select denumire from furnizori_oiv where id_furnizor = ist.id_furnizor) Denumire
+from istoric_aprovizionare_oiv ist
+group by id_furnizor
+having sum(cantitate) > 100
+order by sum(cantitate) desc;
+-- subcerere in select, functia sum, order by
+
+-- Interogarea 8
+-- Sa se afiseze informatii despre clientii care locuiesc intr-un oras unde se afla si 
+-- unul din furnizorii magazinului sau care au varsta mai mare de decat media de varsta 
+-- a clientilor
+select *
+from clienti_oiv client
+where oras in (select oras from furnizori_oiv where oras = client.oras)
+union
+select *
+from clienti_oiv 
+where varsta > (select avg(varsta) from clienti_oiv);
+-- union, subcerere in where, avg
+
+
+-- Interogare 9
+-- Sa se afiseze date despre produsele achizitionate de magazin in luna decembrie 2021
+select (select denumire from furnizori_oiv where id_furnizor = ist.id_furnizor) "Denumire furnizor",
+        prod.denumire "Denumire produs", ist.*
+from istoric_aprovizionare_oiv ist join produse_oiv prod on (ist.id_produs = prod.id_produs)
+where data_achizitie between to_date('01.12.2021', 'dd-mm-yyyy') and to_date('31.12.2021', 'dd-mm-yyyy');
+-- subcerere in select, join, between dates, to_date
+
+
+-- Interogare 10
+-- Pentru toate produsele sa se afiseze pretul de vanzare, pentru produsul cu id-ul "prod_1"
+-- sa se calculeze potentialul profit pe unitate de produs raportat la pretul de achizitie
+-- maxim, iar pentru celelalte produse raportat la pretul de achizitie mediu
+select pret, pret - nvl((select case(upper(id_produs))
+                     when 'PROD_1' then max(pret_achizitie)
+                     else 
+                     avg(pret_achizitie)
+                     end 
+              from istoric_aprovizionare_oiv
+              where id_produs = prod_ext.id_produs
+              group by id_produs), 0) Potential_profit
+from produse_oiv prod_ext;
+-- nvl, case, uper, max, avg, group by
+
+
+-- Interogare 11
+-- Sa se afiseze detalii despre cea mai recenta comanda.
+select data_comanda, 
+      (select prenume || ' ' || upper(nume) from clienti_oiv where id_client = detalii_comanda.id_client) "Nume client",
+      (select oras || ', strada ' || strada || ', nr ' || numar from adrese_livrare_oiv where id_adresa_livrare = detalii_comanda.id_adresa_livrare) Adresa
+from (select * 
+      from comenzi_oiv
+      order by data_comanda desc) detalii_comanda
+where rownum < 2;
+-- subcereri in select si from, upper, rownum
+
+
+-- Interogarea 12
+-- Sa se afiseze denumirea si pretul de vanzare pentru cel mai comandat produs de la furnizori.
+select id_produs, denumire, pret
+from (select id_produs, count(*) Nr_aparitii
+      from istoric_aprovizionare_oiv
+      group by id_produs) join produse_oiv using (id_produs)
+where Nr_aparitii = (select max(Nr_aparitii)
+                     from (select id_produs, count(*) Nr_aparitii
+                          from istoric_aprovizionare_oiv
+                          group by id_produs));
+-- count, subcereri in from si where, max, group by
+
+                          
+-- Interogarea 13
+-- Sa se afiseze catitatea de produse ramase pe stoc dupa ce se vor onora tate comenzile
+with produse_existente as (select id_produs, sum(cantitate) cantitate_existenta
+                           from istoric_aprovizionare_oiv
+                           group by id_produs),
+    produse_comandate as (select id_produs, sum(cantitate) cantitate_ceruta
+                           from produse_comandate_oiv
+                           group by id_produs)
+select existente.id_produs, cantitate_existenta, cantitate_ceruta, (cantitate_existenta - cantitate_ceruta) "Stoc potential"
+from produse_existente existente join produse_comandate comandate on (existente.id_produs = comandate.id_produs);
+-- with, sum, group by, join
+
+
+-- Interogarea 14
+-- Sa se afiseze toate comenzile plasate in ultima luna, precum si numele clientului care le-a initiat
+select data_comanda, (select prenume || ' ' || upper(nume) 
+                      from clienti_oiv 
+                      where id_client = comenzi.id_client) Client
+from comenzi_oiv comenzi
+where data_comanda between (add_months(sysdate, -1)) and sysdate;
+-- subcerere in select, between dates, add_months, sysdate
+
+
+-- Interogarea 15
+-- Pentru fiecare comanda sa se afiseze suma totala 
+select id_comanda, sum(cantitate * pret) total_comanda
+from produse_comandate_oiv prod_com join produse_oiv prod on (prod_com.id_produs = prod.id_produs)
+group by id_comanda;
+-- sum, join
+
+Interogarea 16
+-- Afisarea id-urile tuturor produselor care au fost cumparate de la furnizori din Bucuresti. 
+select distinct id_produs 
+from istoric_aprovizionare_oiv ist1 
+where not exists (select 1 
+                  from furnizori_oiv fz 
+                  where upper(oras) = 'BUCURESTI' 
+                        and not exists (select 'x' 
+                                        from istoric_aprovizionare_oiv ist2 
+                                        where fz.id_furnizor = ist2.id_furnizor and ist2.id_produs = ist1.id_produs)); 
+-- division, not exists, subcerere in where, upper, distinct 

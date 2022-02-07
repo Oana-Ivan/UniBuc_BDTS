@@ -1,0 +1,335 @@
+-- PL/SQL
+
+SET SERVEROUTPUT ON
+
+-- subprogram stocat care sa utilizeze 2 tipuri de colectii
+-- Sa se creeze o procedura care primeste un id de categorie si insereaza in produse_oiv
+-- duplicate ale produselor din respectiva categorie cu numele actualizat. Se vor afisa
+-- numele produselor initiale, precum si numele celor inserate cu nume actualizat.
+
+create or replace procedure afisare_denum_prod_oiv (p_categorie categorii_produse_oiv.id_categorie%type)
+is
+  type denumiri_prajituri_vector is table of produse_oiv.denumire%type index by BINARY_INTEGER;
+  denumiri_prajituri denumiri_prajituri_vector;
+  
+  type prajituri_vector is table of produse_oiv%rowtype index by BINARY_INTEGER;
+  prajituri prajituri_vector;
+begin
+  select denumire bulk collect into denumiri_prajituri
+  from produse_oiv
+  where id_categorie = p_categorie;
+  
+  dbms_output.put_line('Prajiturile din categoria ' || p_categorie || ': ');
+  for i in denumiri_prajituri.first..denumiri_prajituri.last loop
+      dbms_output.put_line(denumiri_prajituri(i));
+  end loop;
+  
+  select * bulk collect into prajituri
+  from produse_oiv
+  where id_categorie = p_categorie;
+  
+  dbms_output.put_line('Prajiturile din categoria ' || p_categorie || ' cu numele actualizat: ');
+  for i in prajituri.first..prajituri.last loop
+      prajituri(i).denumire := prajituri(i).denumire || '_updated';
+      
+      insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+      values ('prod_'|| s_id_produs.nextval, prajituri(i).denumire, prajituri(i).pret, p_categorie);
+      
+      dbms_output.put_line(prajituri(i).denumire);
+  end loop;
+end;
+/
+
+-- apelare
+begin 
+  afisare_denum_prod_oiv('cat_1');
+end;
+/
+
+-- verificare
+select count(*) from produse_oiv where denumire like '%_updated';
+
+-- subprogram stocat care sa foloseasca cursor
+-- Procedura care mareste pretul produselor, 
+-- care apartin unei anumite categorii cu id-ul dat ca parametru,
+-- cu un anumit procent dat ca parametru.
+
+create or replace procedure cursor_oiv (p_categorie categorii_produse_oiv.id_categorie%type,
+                                        p_procent number)
+is
+  CURSOR c_id_produse is (select id_produs from produse_oiv where id_categorie = p_categorie);
+  v_id_produs_curent produse_oiv.id_produs%type;
+begin
+  open c_id_produse;
+  
+  loop
+     fetch c_id_produse into v_id_produs_curent;
+     exit when c_id_produse%notfound;
+     
+     update produse_oiv
+     set pret = pret * (1 + p_procent)
+     where id_produs = v_id_produs_curent;
+    end loop;
+  
+  close c_id_produse;
+end;
+/
+
+select * from produse_oiv;
+
+-- apelare
+begin
+    cursor_oiv('cat_1', 0.5);
+end;
+/
+
+-- functie care sa contina o comanda SQL care foloseste 3 tabele + tratare exceptii
+-- numarul clientilor care sunt in categoria de nume 'V' si care au avut comenzi mai mari 
+-- de o valoare data ca parametru.
+
+create or replace function nr_clienti_oiv (p_litera varchar, p_suma_minima number) return number
+is
+  v_nr_clienti number(3);
+  
+  exp_litera exception;
+  exp_suma_minima exception;
+  
+  eroare_cod varchar2(1);
+  eroare_mesaj varchar2(255);
+begin
+
+  if (length(p_litera) <> 1) then
+    raise exp_litera;
+  end if;
+  
+  if (p_suma_minima <= 0) then
+    raise exp_suma_minima;
+  end if;
+
+  select count(*) into v_nr_clienti
+  from comenzi_oiv com join clienti_oiv cl on (com.id_client = cl.id_client)
+       join (select id_comanda, sum(cantitate * pret) suma
+              from produse_comandate_oiv prod_com join produse_oiv prod on (prod_com.id_produs = prod.id_produs)
+              group by id_comanda) total_pret on (com.id_comanda = total_pret.id_comanda)
+   where upper(cl.nume) like (upper(p_litera) || '%') and total_pret.suma > p_suma_minima;
+   
+   return v_nr_clienti;
+exception
+    when exp_litera then
+        eroare_cod := 'E';
+        eroare_mesaj := 'Introduceti doar prima litera pentru numele clientilor';
+        insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+        values(s_id_message.nextval, eroare_mesaj, eroare_cod, user, sysdate);
+        return -1;
+    when exp_suma_minima then
+        eroare_cod := 'E';
+        eroare_mesaj := 'Suma minima trebuie sa fie mai mare decat zero';
+        insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+        values(s_id_message.nextval, eroare_mesaj, eroare_cod, user, sysdate);
+        return -1;
+    when others then
+        eroare_cod := sqlcode;
+        eroare_mesaj := substr(sqlerrm, 1, 100);
+        insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+        values(s_id_message.nextval, eroare_mesaj, eroare_cod, user, sysdate);
+        return -1;
+end;
+/
+select * from messages_oiv;
+
+-- apelare
+begin
+   dbms_output.put_line(nr_clienti_oiv('Va', 400));
+   dbms_output.put_line(nr_clienti_oiv('V', -400));
+   dbms_output.put_line(nr_clienti_oiv('V', 400));
+end;
+/
+
+
+-- Trigger LMD la nivel de comanda
+-- Magazinul se aprovizioneaza doar in zilele de luni si miercuri, in intervalul 
+-- orar 09:00 - 12:00. Inainte de inserarea de randuri in tabelul istoric_aprovizionare_oiv 
+-- sa se verifice ca este respectata aceasta constrangere.
+
+create or replace trigger verif_data_oiv
+before insert on istoric_aprovizionare_oiv
+begin
+    if ((to_char(sysdate, 'd') not in ('2', '4')) or (to_char(sysdate, 'hh24') not between '09' and '13')) then
+      insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+      values(s_id_message.nextval, to_char(sysdate, 'dd-mm-yyyy, hh') || ' - In acest moment nu se pot realiza achizitii', 'E', user, sysdate);
+      raise_application_error(-20500, 'In acest moment nu se pot realiza achizitii');    
+  end if;
+end;
+/
+
+-- verificare
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, pret_achizitie)
+values ('prod_1', 'fz_1', 10, 1);
+
+-- Trigger LMD la nivel de linie
+-- La inserarea sau actualizare in tablelul istoric_aprovizionare_oiv sa se 
+-- verifice ca pretul de achizitie nu este mai mare decat pretul de vanzare
+
+create or replace trigger verif_pret_achizitie_oiv
+before insert on istoric_aprovizionare_oiv
+for each row
+declare
+  v_pret_vanzare produse_oiv.pret%type;
+begin
+  select pret into v_pret_vanzare
+  from produse_oiv
+  where id_produs = :NEW.id_produs;
+  
+  if (:NEW.pret_achizitie >= v_pret_vanzare) then
+    insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+    values(s_id_message.nextval, 'Eroare insert: pret achizitie > pret vanzare', 'E', user, sysdate);
+    
+    raise_application_error(-20500, 'Pretul de achizitie este mai mare decat cel de vanzare pentru produsul cu id-ul ' || :NEW.id_produs);
+  end if;
+end;
+/
+-- verificare
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_1', 'fz_1', 10, to_date('20-12-2021', 'dd-mm-yyyy'), 15);
+
+
+-- Trigger LDD
+-- Sa se implementeze functionalitatea ca niciun tabel nu poate fi sters in zilele de weekend
+
+create or replace trigger ldd_trigger_oiv
+    before drop on database
+begin
+   if (to_char(sysdate, 'd') in ('7', '1')) then
+      dbms_output.put_line('Nu se pot sterge tabele in weekend.');
+   end if;
+end;
+/
+
+-- Pachet 
+--drop package magazin_pkg_oiv;
+create or replace package magazin_pkg_oiv is
+  procedure afisare_denum_prod_oiv (p_categorie categorii_produse_oiv.id_categorie%type);
+  procedure cursor_oiv (p_categorie categorii_produse_oiv.id_categorie%type, p_procent number);
+  function nr_clienti_oiv (p_litera varchar, p_suma_minima number) return number;
+end magazin_pkg_oiv;
+/
+
+create or replace package body magazin_pkg_oiv is
+    
+    procedure afisare_denum_prod_oiv (p_categorie categorii_produse_oiv.id_categorie%type)
+    is
+      type denumiri_prajituri_vector is table of produse_oiv.denumire%type index by BINARY_INTEGER;
+      denumiri_prajituri denumiri_prajituri_vector;
+      
+      type prajituri_vector is table of produse_oiv%rowtype index by BINARY_INTEGER;
+      prajituri prajituri_vector;
+    begin
+      select denumire bulk collect into denumiri_prajituri
+      from produse_oiv
+      where id_categorie = p_categorie;
+      
+      dbms_output.put_line('Prajiturile din categoria ' || p_categorie || ': ');
+      for i in denumiri_prajituri.first..denumiri_prajituri.last loop
+          dbms_output.put_line(denumiri_prajituri(i));
+      end loop;
+      
+      select * bulk collect into prajituri
+      from produse_oiv
+      where id_categorie = p_categorie;
+      
+      dbms_output.put_line('Prajiturile din categoria ' || p_categorie || ' cu numele actualizat: ');
+      for i in prajituri.first..prajituri.last loop
+          prajituri(i).denumire := prajituri(i).denumire || '_updated';
+          
+          insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+          values ('prod_'|| s_id_produs.nextval, prajituri(i).denumire, prajituri(i).pret, p_categorie);
+          
+          dbms_output.put_line(prajituri(i).denumire);
+      end loop;
+    end afisare_denum_prod_oiv;
+    
+    procedure cursor_oiv (p_categorie categorii_produse_oiv.id_categorie%type,
+                                        p_procent number)
+    is
+      CURSOR c_id_produse is (select id_produs from produse_oiv where id_categorie = p_categorie);
+      v_id_produs_curent produse_oiv.id_produs%type;
+    begin
+      open c_id_produse;
+      
+      loop
+         fetch c_id_produse into v_id_produs_curent;
+         exit when c_id_produse%notfound;
+         
+         update produse_oiv
+         set pret = pret * (1 + p_procent)
+         where id_produs = v_id_produs_curent;
+        end loop;
+      
+      close c_id_produse;
+    end cursor_oiv;
+    
+    function nr_clienti_oiv (p_litera varchar, p_suma_minima number) return number
+    is
+      v_nr_clienti number(3);
+      
+      exp_litera exception;
+      exp_suma_minima exception;
+      
+      eroare_cod varchar2(1);
+      eroare_mesaj varchar2(255);
+    begin
+    
+      if (length(p_litera) <> 1) then
+        raise exp_litera;
+      end if;
+      
+      if (p_suma_minima <= 0) then
+        raise exp_suma_minima;
+      end if;
+    
+      select count(*) into v_nr_clienti
+      from comenzi_oiv com join clienti_oiv cl on (com.id_client = cl.id_client)
+           join (select id_comanda, sum(cantitate * pret) suma
+                  from produse_comandate_oiv prod_com join produse_oiv prod on (prod_com.id_produs = prod.id_produs)
+                  group by id_comanda) total_pret on (com.id_comanda = total_pret.id_comanda)
+       where upper(cl.nume) like (upper(p_litera) || '%') and total_pret.suma > p_suma_minima;
+       
+       return v_nr_clienti;
+    exception
+        when exp_litera then
+            eroare_cod := 'E';
+            eroare_mesaj := 'Introduceti doar prima litera pentru numele clientilor';
+            insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+            values(s_id_message.nextval, eroare_mesaj, eroare_cod, user, sysdate);
+            return -1;
+        when exp_suma_minima then
+            eroare_cod := 'E';
+            eroare_mesaj := 'Suma minima trebuie sa fie mai mare decat zero';
+            insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+            values(s_id_message.nextval, eroare_mesaj, eroare_cod, user, sysdate);
+            return -1;
+        when others then
+            eroare_cod := sqlcode;
+            eroare_mesaj := substr(sqlerrm, 1, 100);
+            insert into messages_oiv (message_id, message, message_type, created_by, created_at)
+            values(s_id_message.nextval, eroare_mesaj, eroare_cod, user, sysdate);
+            return -1;
+    end nr_clienti_oiv;
+
+end magazin_pkg_oiv;
+/
+
+-- verificare
+execute magazin_pkg_oiv.afisare_denum_prod_oiv('cat_1');
+execute magazin_pkg_oiv.cursor_oiv('cat_1', 0.5);
+execute dbms_output.put_line(magazin_pkg_oiv.nr_clienti_oiv('Va', 400)); 
+execute dbms_output.put_line(magazin_pkg_oiv.nr_clienti_oiv('V', -400)); 
+execute dbms_output.put_line(magazin_pkg_oiv.nr_clienti_oiv('V', 400));
+
+--drop package magazin_pkg_oiv;
+--drop procedure afisare_denum_prod_oiv;
+--drop procedure cursor_oiv;
+--drop function nr_clienti_oiv;
+--drop trigger verif_data_oiv;
+--drop trigger verif_pret_achizitie_oiv;
+--drop trigger ldd_trigger_oiv;

@@ -1,0 +1,284 @@
+-- Creare tabele si constrangeri
+
+create table adrese_livrare_oiv (
+  id_adresa_livrare varchar(15),
+  oras varchar2(30) not null,
+  strada varchar2(30),
+  numar number(4),
+  primary key (id_adresa_livrare)
+);
+
+create table clienti_oiv (
+  id_client varchar(15),
+  nume varchar2(30) not null,
+  prenume varchar2(30),
+  varsta number(2),
+  oras varchar2(30),
+  primary key (id_client)
+);
+
+create table categorii_produse_oiv (
+  id_categorie varchar(15),
+  denumire varchar2(30) not null,
+  primary key (id_categorie)
+);
+
+create table produse_oiv (
+  id_produs varchar(15),
+  denumire varchar2(30) not null,
+  pret number(4),
+  id_categorie varchar(15),
+  primary key (id_produs),
+  foreign key(id_categorie) references categorii_produse_oiv(id_categorie)
+);
+
+create table detalii_plata_oiv (
+  nr_card varchar(15),
+  nume_titular varchar2(30) not null,
+  prenume_titular varchar2(30) not null,
+  cvv number(3),
+  primary key (nr_card)
+);
+
+create table furnizori_oiv (
+  id_furnizor varchar(15),
+  denumire varchar2(30) not null,
+  oras varchar2(30) not null,
+  primary key (id_furnizor)
+);
+
+create table comenzi_oiv (
+  id_comanda varchar(15),
+  id_client varchar(15),
+  nr_card varchar(15),
+  id_adresa_livrare varchar(15),
+  data_comanda date default sysdate,
+  primary key (id_comanda),
+  foreign key(id_client) references clienti_oiv(id_client),
+  foreign key(nr_card) references detalii_plata_oiv(nr_card),
+  foreign key(id_adresa_livrare) references adrese_livrare_oiv(id_adresa_livrare)
+);
+
+create table produse_comandate_oiv (
+  id_comanda varchar(15),
+  id_produs varchar(15),
+  cantitate number(4) not null,
+  primary key (id_comanda, id_produs),
+  foreign key(id_comanda) references comenzi_oiv(id_comanda),
+  foreign key(id_produs) references produse_oiv(id_produs)
+);
+
+create table istoric_aprovizionare_oiv (
+  id_produs varchar(15),
+  id_furnizor varchar(15),
+  cantitate number(4) not null,
+  data_achizitie date default sysdate,
+  pret_achizitie number(6) not null,
+  primary key (id_produs, id_furnizor, data_achizitie),
+  foreign key(id_produs) references produse_oiv(id_produs),
+  foreign key(id_furnizor) references furnizori_oiv(id_furnizor)
+);
+
+-- Creare secvente pentru a genera cheile primare
+create sequence s_id_adresa_livrare;
+create sequence s_id_client;
+create sequence s_id_furnizor;
+create sequence s_id_categorie;
+create sequence s_id_produs;
+create sequence s_id_comanda;
+create sequence s_id_message;
+
+-- inserare valori in tabelul detalii de plata
+insert into detalii_plata_oiv (nr_card, nume_titular, prenume_titular, cvv)
+values (123456, 'Popescu', 'Andrei', 123);
+insert into detalii_plata_oiv (nr_card, nume_titular, prenume_titular, cvv)
+values (123457, 'Ionescu', 'Maria', 455);
+insert into detalii_plata_oiv (nr_card, nume_titular, prenume_titular, cvv)
+values (123458, 'Matei', 'David', 678);
+insert into detalii_plata_oiv (nr_card, nume_titular, prenume_titular, cvv)
+values (123459, 'Dramescu', 'Ana', 123);
+insert into detalii_plata_oiv (nr_card, nume_titular, prenume_titular, cvv)
+values (123490, 'Vasilescu', 'Mihai', 456);
+
+savepoint adaugat_plati;
+
+-- inserare valori in tabelul adrese_livrare_oiv
+insert into adrese_livrare_oiv (id_adresa_livrare, oras, strada, numar)
+values ('adr_' || s_id_adresa_livrare.nextval, 'Bucuresti', 'Iuliu Maniu', 46);
+insert into adrese_livrare_oiv (id_adresa_livrare, oras, strada, numar)
+values ('adr_' || s_id_adresa_livrare.nextval, 'Bucuresti', 'Mihai Eminescu', 3);
+insert into adrese_livrare_oiv (id_adresa_livrare, oras, strada, numar)
+values ('adr_' || s_id_adresa_livrare.nextval, 'Cluj', 'Ion Creanga', 16);
+insert into adrese_livrare_oiv (id_adresa_livrare, oras, strada, numar)
+values ('adr_' || s_id_adresa_livrare.nextval, 'Craiova', 'Tudor Vladimirescu', 4);
+insert into adrese_livrare_oiv (id_adresa_livrare, oras, strada)
+values ('adr_' || s_id_adresa_livrare.nextval, 'Titu', 'Unirea');
+
+savepoint adaugat_adrese_livrare;
+
+-- inserare valori in tabelul clienti
+insert into clienti_oiv (id_client, nume, prenume, varsta, oras)
+values ('client_'|| s_id_client.nextval, 'Vasile', 'Ionut', 22, 'Bucuresti');
+insert into clienti_oiv (id_client, nume, prenume, varsta)
+values ('client_'|| s_id_client.nextval, 'Daniel', 'Robert', 36);
+insert into clienti_oiv (id_client, nume, prenume, oras, varsta)
+values ('client_'|| s_id_client.nextval,  'Mihai', 'Maria', 'Targoviste', 34);
+insert into clienti_oiv (id_client, nume, prenume, varsta)
+values ('client_'|| s_id_client.nextval,  'Denis', 'Andrei', 23);
+insert into clienti_oiv (id_client, nume, prenume, oras, varsta)
+values ('client_'|| s_id_client.nextval,  'Dinu', 'Ana', 'Constanta', 37);
+insert into clienti_oiv (id_client, nume, prenume, varsta)
+values ('client_'|| s_id_client.nextval,  'Marius', 'Raluca', 40);
+insert into clienti_oiv (id_client, nume, prenume, varsta)
+values ('client_'|| s_id_client.nextval,  'Constantin', 'Denisa', 29);
+
+savepoint adaugat_clienti;
+
+-- inserare valori in tabelul furnizori
+insert into furnizori_oiv (id_furnizor, denumire, oras)
+values ('fz_'|| s_id_furnizor.nextval, 'Cofetaria Matilda', 'Girgiu');
+insert into furnizori_oiv (id_furnizor, denumire, oras)
+values ('fz_'|| s_id_furnizor.nextval,  'Cofetaria A', 'Bucuresti');
+insert into furnizori_oiv (id_furnizor, denumire, oras)
+values ('fz_'|| s_id_furnizor.nextval, 'Cofetaria B', 'Bucuresti');
+insert into furnizori_oiv (id_furnizor, denumire, oras)
+values ('fz_'|| s_id_furnizor.nextval, 'Cofetaria X', 'Cluj');
+insert into furnizori_oiv (id_furnizor, denumire, oras)
+values ('fz_'|| s_id_furnizor.nextval, 'Cofetaria Y', 'Cluj');
+
+savepoint adaugat_furnizori;
+
+-- inserare valori in tabelul categorii_produse
+insert into categorii_produse_oiv (id_categorie, denumire)
+values ('cat_'|| s_id_categorie.nextval, 'Prajituri clasice');
+insert into categorii_produse_oiv (id_categorie, denumire)
+values ('cat_'|| s_id_categorie.nextval, 'Prajituri italiene');
+insert into categorii_produse_oiv (id_categorie, denumire)
+values ('cat_'|| s_id_categorie.nextval, 'Prajituri cu frisca');
+insert into categorii_produse_oiv (id_categorie, denumire)
+values ('cat_'|| s_id_categorie.nextval, 'Prajituri cu branza');
+insert into categorii_produse_oiv (id_categorie, denumire)
+values ('cat_'|| s_id_categorie.nextval, 'Torturi');
+
+savepoint adaugat_categorii_produse;
+
+-- inserare valori in tabelul produse
+insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+values ('prod_'|| s_id_produs.nextval, 'Ecler', 10, 'cat_1');
+insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+values ('prod_'|| s_id_produs.nextval, 'Tort diplomat', 60, 'cat_5');
+insert into produse_oiv (id_produs, denumire, pret)
+values ('prod_'|| s_id_produs.nextval, 'Prajitura ciocolata', 45);
+insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+values ('prod_'|| s_id_produs.nextval, 'Amandina', 10, 'cat_1');
+insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+values ('prod_'|| s_id_produs.nextval, 'Savarina', 15, 'cat_3');
+insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+values ('prod_'|| s_id_produs.nextval, 'Foietaj branza', 7, 'cat_4');
+insert into produse_oiv (id_produs, denumire, pret)
+values ('prod_'|| s_id_produs.nextval, 'Tarta fructe', 25);
+insert into produse_oiv (id_produs, denumire, pret, id_categorie)
+values ('prod_'|| s_id_produs.nextval, 'Tiramisu', 55, 'cat_2');
+
+savepoint adaugat_produse;
+
+-- inserare valori in tabelul istoric_aprovizionare_oiv
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_1', 'fz_1', 10, to_date('20-08-2020', 'dd-mm-yyyy'), 15);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_1', 'fz_3', 90, to_date('12-09-2021', 'dd-mm-yyyy'), 17);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_2', 'fz_2', 60, to_date('20-09-2021', 'dd-mm-yyyy'), 50);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_6', 'fz_2', 100, to_date('20-11-2021', 'dd-mm-yyyy'), 39);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_7', 'fz_5', 60, to_date('29-10-2021', 'dd-mm-yyyy'), 17);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_8', 'fz_5', 70, to_date('29-11-2021', 'dd-mm-yyyy'), 10);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_3', 'fz_4', 20, to_date('15-12-2021', 'dd-mm-yyyy'), 35);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_4', 'fz_5', 20, to_date('18-12-2021', 'dd-mm-yyyy'), 15);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_1', 'fz_1', 20, to_date('20-12-2021', 'dd-mm-yyyy'), 30);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, data_achizitie, pret_achizitie)
+values ('prod_7', 'fz_3', 20, to_date('02-12-2021', 'dd-mm-yyyy'), 32);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, pret_achizitie)
+values ('prod_2', 'fz_3', 20, 55);
+insert into istoric_aprovizionare_oiv (id_produs, id_furnizor, cantitate, pret_achizitie)
+values ('prod_6', 'fz_2', 10, 49);
+
+savepoint adaugat_istoric_aprovizionare;
+
+-- inserare valori in tabelul comenzi_oiv
+insert into comenzi_oiv (id_comanda, id_client, nr_card, id_adresa_livrare, data_comanda)
+values ('comanda_'|| s_id_comanda.nextval, 'client_1', '123490', 'adr_1', to_date('03-12-2021', 'dd-mm-yyyy'));
+insert into comenzi_oiv (id_comanda, id_client, nr_card, id_adresa_livrare, data_comanda)
+values ('comanda_'|| s_id_comanda.nextval, 'client_1', '123456', 'adr_4', to_date('12-01-2022', 'dd-mm-yyyy'));
+insert into comenzi_oiv (id_comanda, id_client, nr_card, id_adresa_livrare, data_comanda)
+values ('comanda_'|| s_id_comanda.nextval, 'client_1', '123457', 'adr_3', to_date('17-01-2022', 'dd-mm-yyyy'));
+insert into comenzi_oiv (id_comanda, id_client, nr_card, id_adresa_livrare, data_comanda)
+values ('comanda_'|| s_id_comanda.nextval, 'client_3', '123459', 'adr_1', to_date('19-12-2021', 'dd-mm-yyyy'));
+insert into comenzi_oiv (id_comanda, id_client, nr_card, id_adresa_livrare) -- data_comenzii va lua valoarea default
+values ('comanda_'|| s_id_comanda.nextval, 'client_2', '123458', 'adr_2');  
+insert into comenzi_oiv (id_comanda, id_client, nr_card, id_adresa_livrare) -- data_comenzii va lua valoarea default
+values ('comanda_'|| s_id_comanda.nextval, 'client_1', '123490', 'adr_2');  
+
+savepoint adaugat_comenzi;
+
+-- inserare in tabelul produse_comandate_oiv
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_1', 'prod_2', 12);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_1', 'prod_3', 20);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_2', 'prod_1', 30);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_2', 'prod_7', 24);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_2', 'prod_5', 10);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_3', 'prod_5', 25);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_4', 'prod_4', 22);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_5', 'prod_2', 40);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_5', 'prod_6', 20);
+insert into produse_comandate_oiv (id_comanda, id_produs, cantitate)
+values ('comanda_6', 'prod_7', 10);
+
+savepoint adaugat_produse_comandate;
+
+create table messages_oiv (
+  message_id number(5),
+  message varchar2(255),
+  message_type varchar2(1),
+  created_by varchar2(40) not null,
+  created_at date not null,
+  primary key (message_id)
+);
+
+commit;
+
+-- Stergere secvente
+--drop sequence s_id_adresa_livrare;
+--drop sequence s_id_client;
+--drop sequence s_id_furnizor;
+--drop sequence s_id_produs;
+--drop sequence s_id_categorie;
+--drop sequence s_id_comanda;
+--drop sequence s_id_message
+
+-- Stergere tabele
+--drop table istoric_aprovizionare_oiv;
+--drop table produse_comandate_oiv;
+--drop table comenzi_oiv;
+--
+--drop table adrese_livrare_oiv;
+--drop table clienti_oiv;
+--drop table produse_oiv;
+--drop table categorii_produse_oiv;
+--drop table detalii_plata_oiv;
+--drop table furnizori_oiv;
+--drop table messages_oiv;
