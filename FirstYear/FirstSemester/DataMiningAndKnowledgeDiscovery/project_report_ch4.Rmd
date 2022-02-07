@@ -1,0 +1,705 @@
+---
+title: 'Graphical EDA II: categorical data & quality control'
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    highlight: pygments
+  pdf_document: default
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE)
+```
+
+## **1. Afișarea datelor categorice**
+
+### a) Introducere
+> Datele categorice simple reprezintă valori calitative pe care le pot lua variabilele.
+
+> Variabilele categorice simple contin informații relativ reduse față de datele categorice multivariate, dar uneori pot fi mai relevante graficele mai simple în cele mai complexe pentru afișarea informațiilor.
+
+> Cele mai comune optiuni pentru vizualizarea acestor date sunt:
+* barcharts (barele au aceeași lățime și se compară lungimea lor)
+* piecharts (cazurile posibile sunt comparate in functie de aria pe care o ocupă pe grafic)
+
+> Exemplul afișare date folosind barcharts
+
+Context: există mai multe regiuni în Republica Federală Germană și urm ătoarele grafice prezintă distribuția geografică a numărului de oameni cu drept de vot din fiecare regiune pentru alegerile din 2009
+
+```{r message=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(flexclust)
+data(btw2009, package = "flexclust")
+btw2009 <- within (btw2009, stateA <- state)
+btw2009 <- within (btw2009,
+                   levels(stateA) <- c("BW", "BY", "BE",
+                                       "BB", "HB", "HH", "HE", "MV", "NI", "NW",
+                                       "RP", "SL", "SN", "ST", "SH", "TH"))
+Voters <- with(btw2009, size <- tapply(eligible, stateA, sum))
+Bundesland <- rownames(Voters)
+btw9s <- data.frame(Bundesland, Voters)
+btw9s$EW <- c("West")
+btw9s[c("BB", "BE", "MV","SN","ST","TH"), "EW"] <- "East"
+ls <- with(btw9s, Bundesland[order(EW, -Voters)])
+btw9s <- within(btw9s, State1 <- factor(Bundesland, levels=ls))
+
+# grafice:
+# grafic 1: numărul de oameni cu drept de vot în fiecare regiune 
+# în ordinea alfabetică a regiunilor
+b1 <- ggplot(btw9s, aes(Bundesland, Voters/1000000)) +
+  geom_bar(stat="identity") +
+  ylab("Voters (millions)")
+
+# grafic 2: numărul de oameni cu drept de vot în fiecare regiune 
+# în ordinea descrescătaore a numărului de oameni
+b2 <- ggplot(btw9s, aes(reorder(Bundesland, -Voters),
+                        Voters/1000000)) + geom_bar(stat="identity") +
+  xlab("Bundesland") + ylab("Voters (millions)")
+
+# grafic 3: numărul de oameni cu drept de vot în fiecare regiune,
+# regiunile fiind grupate în vest și est și apoi descrescător după numărul de oameni cu drept de vot
+b3 <- ggplot(btw9s, aes(State1, Voters/1000000)) +
+  geom_bar(stat="identity") + xlab("Bundesland") +
+  ylab("Voters (millions)")
+
+# afișarea graficelor combinate
+grid.arrange(b1, b2, b3)
+```
+În cadrul primului grafic, regiunile sunt ordonate alfabetic astfel încât să fie găsite ușor.
+În cazul celorlalte două grafice, regiunile sunt ordonate pe alte criterii și astfel oferă informații specifice prin ordinea lor (de exemplu în ultimul grafic: diferența dintre regiunile de vest și cele din est)
+
+> Caracteristici pe care le pot avea variabilele categorice
+
+* pot exista modele de rezultate:
+  + unele categorii pot avea un volum mult mai mai mare de date decât altele
+  + unele categorii pot lipsi complet
+* datele pot să nu fie distribuite egal (de exemplu din punct de vedere al genului pot exista mai mulți participanți la studii de genul masculin sau pentru grupurile de studii care sunt analizate împreună este posibil ca un număr mic de studii să fie mult mai mari decât celelalte)
+* categorii extra (împărțirea pe genuri poate fi înregistrată și ca "F" și "M" și ca "f" și "m" și ca "female" și "male" etc; într-un studiu în care se analizează 2 boli pot apărea pacienți cu o a treia boală)
+* experimente inegale (unele date pot lipsi sau pot exista, dar nu într-o formă utilizabilă, iar acest lucru poate duce la grupuri inegale)
+* număr mare de categorii (studii cu întrebări cu răspuns deschis, exemplu: întrebarea "Care e politicianul tău preferat?"poate duce la crearea de foarte multe categorii)
+* "don't knows", erori, lipsuri
+
+### b) Tipuri de date categorice simple
+
+* date nominale (fără o ordine standard, etichetarea variabilelor fără nicio valoare cantitativă).Exemple:
+  + un grup format din diferite brand-uri de cafea);
+	+ female/male;
+	+ naționalitate;
+	+ numele persoanlelor.
+
+* date ordinale (valoarea categoriei este dată în raport cu celelalte categorii). Exemple:
+  + împărținerea pe vârste în "tânăr", "vârstă mijlocie" și "bătrân";
+	+ sondajele variantele cu: "foarte probabil", "probabil", "neutru", "improbabil", "foarte puțin probabil".
+	
+* date discrete (nu pot fi împărțite în funcție de natura a ceea ce sunt). Exemplu: 
+  + numărul de copii dintr-o familie
+
+Observație: pentru datele ordinale și discrete, ordinea contează și trebuie păstrată, pentru prima ordinea poate fi un instrument pentru a obține informații suplimentare despre date
+
+#### Datele nominale
+
+> Exemple de afișare - date nominale
+
+Exemplul 1 - Meta analysis - cat de mare e fiecare studiu
+
+Dataset: 7 studii despre utilizarea aspirinei după infarctul miocardic
+Barchart: numărul de pacienți în fiecare studiu
+Concluzie: doar 2 studii au număr de participanți mai mare decât 2000
+
+```{r message=FALSE}
+library(meta)
+# Barchart 1: numărul de pacienți în fiecare studiu
+data(Fleiss93, package="meta")
+Fleiss93 <- within(Fleiss93, {
+  total <- n.e + n.c
+  st <- reorder(study, -(total)) })
+ggplot(Fleiss93, aes(st, total)) + geom_bar(stat="identity") +
+  xlab("") + ylab("") + ylim(0,20000)
+
+# Barchart 2: numărul de pacienți în fiecare studiu, dar numărul de pacienți în studiile cu mai puțin de 2000 de participanți este combinat
+Fleiss93 <- within(Fleiss93, st1 <- as.character(study))
+Fleiss93$st1[Fleiss93$total < 2000] <- "REST"
+ggplot(Fleiss93, aes(st1, total)) + geom_bar(stat="identity") +
+  xlab("") + ylab("") + ylim(0,20000)
+```
+Exemplu 2
+
+Dataset: un studiu legat de tratarea anorexiei: 2 grupuri + 1 grup de control
+Barchart: numărul de pacienți în fiecare studiu
+Concluzie: împărțire inegală în grupuri. Posibile motive: motive legate de studiu, oameni care au decis să părăsească studiul
+Observație: aceleași informații se pot vedea și într-un tabel, dar graficul este mai convingător
+
+```{r message=FALSE}
+library(MASS)
+data(anorexia, package="MASS")
+ggplot(anorexia, aes(Treat)) + geom_bar() + xlab("Treatment")
+
+with(anorexia, table(Treat))
+```
+
+Exemplul 3
+Dataset: 2201 pasageri Titanic cu informațiile: clasă(clasa 1, 2, 3 sau echipaj), sex, vârstă(copil/adult), supraviețuit
+Barchart: numărul de pasageri în functie de fiecare categorie
+Concluzie: mai mulți oameni în echipaj, mai mulți bărbați decât femei, mai mulți adulți și mai mulți oameni care nu au supraviețuit
+
+```{r message=FALSE}
+library(titanic)
+Titanic1 <- data.frame(Titanic)
+p <- ggplot(Titanic1, aes(weight=Freq)) +
+  ylab("") + ylim(0,2250)
+cs <- p + aes(Class) + geom_bar(fill="blue")
+sx <- p + aes(Sex) + geom_bar(fill="green")
+ag <- p + aes(Age) + geom_bar(fill="tan2")
+su <- p + aes(Survived) + geom_bar(fill="red")
+grid.arrange(cs, sx, ag, su, nrow=1, widths=c(3, 2, 2, 2))
+
+```
+
+Sondaje de opinie
+În general numărul de oameni nehotărâți e rar arătat, deși ar putea face diferență (de exemplu în cadrul sondajelor politice).
+Piecharts în general se recomandă să fie evitate.
+
+Exemplul 4
+Dataset: - (alegerile irlandeze, august 2013)
+Piechart: preferințele oamenilor legat de cine va câștiga alegerile
+Concluzie: în primmul grafic în care nu se fac aproximări, astfel că apare și procentul celor nehotărâți și se poate vedea cât de imprevizibile vor fi rezultatele.
+
+```{r message=FALSE}
+Party <- c("Fine Gael", "Labour", "Fianna Fail",
+           "Sinn Fein", "Indeps", "Green", "Don’t know")
+nos <- c(181, 51, 171, 119, 91, 4, 368)
+IrOP <- data.frame(Party, nos)
+IrOP <- within(IrOP, {
+  percwith <- nos/sum(nos)
+  percnot <- nos/sum(nos[-7])})
+par(mfrow=c(2,1), mar = c(2.1, 2.1, 2.1, 2.1))
+with(IrOP, pie(percwith, labels=Party, clockwise=TRUE,
+               col=c("blue", "red", "darkgreen", "black",
+                     "grey", "lightgreen", "white"), radius=1))
+with(IrOP, pie(percnot[-7], labels=Party, clockwise=TRUE,
+               col=c("blue", "red", "darkgreen", "black",
+                     "grey", "lightgreen"), radius=1))
+```
+
+
+
+#### Datele ordinale
+
+> Exemple afișare - date ordinale
+
+Sondaje de opinie
+Răspunsuri date "pe o scară de la 1 la 5"
+
+Exemplu 1:
+Dataset: effects - alegerile americane 1997 - 2001
+Barcharts: rating-ul pentru 3 candidați
+Concluzie: 2 dintre ei ori au primit rating mare de 4 - 5, ori rating de 1 -2, pe când celălalt a primit mai mult rating mediu
+
+```{r message=FALSE}
+library(effects)
+data("BEPS", package="effects")
+a1 <- ggplot(BEPS, aes(factor(Hague))) +
+  geom_bar(fill="blue") + ylab("") +
+  xlab("Hague (Conservative)") + ylim(0, 900)
+a2 <- ggplot(BEPS, aes(factor(Blair))) +
+  geom_bar(fill="red") + ylab("") +
+  xlab("Blair (Labour)") + ylim(0, 900)
+a3 <- ggplot(BEPS, aes(factor(Kennedy))) +
+  geom_bar(fill="yellow") + ylab("") +
+  xlab("Kennedy (Liberal)") + ylim(0, 900)
+grid.arrange(a1, a2, a3, nrow=1)
+```
+
+Exemplu 2:
+Dataset: effects - integrarea europeană
+Barcharts: cunoștințele despre integrarea europeană și atitudinea față de integrare
+Concluzie: primul grafic: puține răspunsuri la 1; al doilea: în afară de cei clar împotrivă, graficul este destul de echilibrat
+
+```{r message=FALSE}
+b1 <- ggplot(BEPS, aes(factor(political.knowledge))) +
+  geom_bar(fill="tan2") + coord_flip() + ylab("") +
+  xlab("Knowledge of policies on Europe")
+b2 <- ggplot(BEPS, aes(factor(Europe))) +
+  geom_bar(fill="lightgreen") + ylab("") +
+  xlab("Attitudes to European integration")
+grid.arrange(b1, b2, nrow=1, widths=c(4, 8))
+```
+
+Exemplu 3:
+Dataset: MASS - date despre studenții australieni, 1970
+Barchart: sex, dreptaci/sangaci, unitate de masura folosita, fumat, exercitii fizice etc
+Conluzie: numărul de parcticipanți de genul feminin este egal cu numărul de participanți de genul masculin, mai multi participanți sunt dreptaci, mai mulți folosesc sitemul metric decât cel imperiaal, cei mai multi nu fumeaza, multi fac exercitii fizice etc.
+
+```{r message=FALSE}
+library(MASS)
+data(survey, package="MASS")
+s1 <- ggplot(survey, aes(Sex)) + geom_bar() + ylab("")
+s2 <- ggplot(survey, aes(W.Hnd)) + geom_bar() +
+  xlab("Writing hand") + ylab("")
+s3 <- ggplot(survey, aes(Fold)) + geom_bar() +
+  xlab("Folding arms: arm on top") + ylab("")
+s4 <- ggplot(survey, aes(Clap)) + geom_bar() +
+  xlab("Clapping: hand on top") + ylab("")
+survey <- within(survey,
+                 ExerN <- factor(Exer,
+                                 levels=c("None", "Some", "Freq")))
+s5 <- ggplot(survey, aes(ExerN)) + geom_bar() +
+  xlab("Exercise") + ylab("")
+s6 <- ggplot(survey, aes(M.I)) + geom_bar() +
+  xlab("Height units") + ylab("")
+survey <- within(survey,
+                 SmokeN <- factor(Smoke,
+                                  levels=c("Never", "Occas", "Regul", "Heavy")))
+s7 <- ggplot(survey, aes(SmokeN)) + geom_bar() +
+  xlab("Smoking") + ylab("")
+grid.arrange(s1, s2, s3, s4, s5, s6, s7, ncol=3)
+```
+
+#### Date discrete
+
+Exemplul 1:
+Dataset: vcd
+Barchart: nr de oameni omorâți de lovitura unor cai în armata Prusiei pe o perioadă de 20 de ani
+Conluzie: numărul descrește cu timpul, distributia morților seamănă cu o distribuție Poisson de parametru 0.7, de unde deducem că este vorba de accidente random
+
+
+```{r message=FALSE}
+library(vcd)
+data(VonBort, package="vcd")
+ggplot(VonBort, aes(x=factor(deaths))) + geom_bar() +
+  xlab("Deaths by horse kick")
+
+# Test - distribuție Poisson
+gf <- goodfit(table(VonBort$deaths))
+summary(gf)
+
+# 9.2. nr de morti din cauza mentionata într-un an dintr-un total de 14 morti
+data(VonBort, package="vcd")
+h1 <- ggplot(VonBort[VonBort$year=="1891", ],
+             aes(x=factor(deaths))) + geom_bar()
+h2 <- ggplot(VonBort[VonBort$year=="1891", ],
+             aes(x=factor(deaths, levels=seq(0, 4)))) +
+  geom_bar() + scale_x_discrete(drop=FALSE)
+grid.arrange(h1, h2, nrow=1)
+```
+
+Exemplul 2:
+Scorurile în competițiile sportive în general duc la date discrete
+dataset: vcd - rezultatle din 1995 - 1996 de la Prima Liga Europeana
+barchart: frecvențele cu care apar anumite scoruri home vs away team
+concluzie: home team > away team
+
+
+```{r message=FALSE}
+library(vcd)
+data(UKSoccer, package="vcd")
+PL <- data.frame(UKSoccer)
+lx <- c("0","1","2","3","4 or more")
+b1 <- ggplot(PL, aes(x=factor(Home), weight=Freq)) +
+  geom_bar(fill="firebrick1") +
+  ylab("") + xlab("Home Goals") +
+  scale_x_discrete(labels=lx) + ylim(0,150)
+b2 <- ggplot(PL, aes(x=factor(Away), weight=Freq)) +
+  geom_bar(fill="cyan1") +
+  ylab("") + xlab("Away Goals") +
+  scale_x_discrete(labels=lx) + ylim(0,150)
+grid.arrange(b1, b2, nrow=1)
+```
+
+Exemplul 3: Legea lui Benford - distribuția cifrelor în numere nu este egală
+
+
+```{r message=FALSE}
+xx <- 1:9
+Ben <- data.frame(xx, pdf=log10(1+1/xx))
+ggplot(Ben, aes(factor(xx), weight=pdf)) + geom_bar() +
+  xlab("") + ylab("") + ylim(0,0.35)
+```
+
+#### Formate, factori, estimări și barcharts
+
+Înainte de a afișa datele, de regulă acestea au nevoie să fie prelucrate. De aceea trebuie să avem în vedere:
+
+* forma unui set de date
+	Datele pot fi primite ca:
+		+ colecție de cazuri individuale
+		+ listă de posibile combinații de variabile categorice cu frecvențele lor asociate
+		+ set de tabele condiționate
+	Deci pentru desenarea graficelor poate fi nevoie de restructurarea datelor
+* codificarea variabilelor
+* estimările afișate "as bars"
+
+#### Modelarea și testarea variabilelor categorice
+1. testare prin simulare: testul X^2 (disponibil în R sub forma funcției: chisq.test): simularea mai multor seturi de date și compararea cu setul real de date
+2. egalitatea în distribuție
+3. încadrarea distribuțiilor directe
+
+### c) Exerciții
+
+> Exercițiul 1: Gastrointestinal damage
+The dataset is called Lanza from the package HSAUR2.
+ (a) Data on four studies are reported. Draw a plot to show whether all four
+studies are equally large.
+ (b) The outcome is measured by the variable classification with scores
+of 1 (best) to 5 (worst). How would you describe the distribution?
+
+
+```{r message=FALSE}
+library(HSAUR2)
+LanzaDataSet <- data.frame(Lanza)
+
+# ex 1, a
+ggplot(LanzaDataSet, aes(study)) + geom_bar() + xlab("study")
+# al IV-lea studiu a avut mai puțini participanți decât primul
+
+# ex 1, b
+ggplot(LanzaDataSet, aes(classification)) + geom_bar() + xlab("classification")
+# au predominat alegerile extreme: 1 sau 5
+# Cei mai mulți participanți la studiu au ales să aleagă 1(best), iar următoarea categorie să acorde 5(worst), urmată de participanții neutri
+
+```
+
+
+> Exercițiul 2: Alzheimer’s
+Three groups of patients (one with Alzheimer’s, one with other forms of dementia,
+and a control group with other diagnoses) were studied. Counts are given in
+the dataset alzheimer in the package coin. Prepare a graphical summary of plots
+of each of the three variables, smoking, disease, and gender, in a single
+window.
+(a) Are the disease groups very different in size?
+(b) Are there more men or women in the study?
+(c) How would you describe the distribution of the smoking variable? Do you
+think the smoking data are likely to be reliable?
+
+```{r message=FALSE}
+#install.packages("coin")
+library("coin")
+AlzheimerDataSet <- data.frame(alzheimer)
+
+p <- ggplot(AlzheimerDataSet) 
+s <- p + aes(smoking) + geom_bar()
+d <- p + aes(disease) + geom_bar()
+g <- p + aes(gender) + geom_bar()
+grid.arrange(s, d, g, nrow=1, widths=c(3, 2, 2))
+
+# a: grupurile au avut dimensiuni asemănătoare: cel mai numeros fiind cel format de pacienții care suferă de Alzheimer, apoi cel format de pacienții cu alte diagnostice
+# b: numărul femeilor particiante la studiu a fost aproape dublu față de numărul bărbaților
+# c: numărul fumătorilor este aproape egal cu numărul nefumătorilor(numărul nefumătorilor fiind mai mare), deci fumatul nu ar prezenta o variabilă importantă în cadrul studiului
+
+```
+
+> Exercițiul 3: Slot machines
+According to the R help entry, this dataset (vlt in package DAAG) was collected
+from the three windows of a video lottery terminal while playing the game ‘Double
+Diamond’. 
+There are seven possible symbols that may appear in each window.
+Draw equally scaled barcharts to see if the distributions of frequencies are
+the same for each window. Describe any important features.
+
+```{r message=FALSE}
+library("DAAG")
+VltDataSet <- data.frame(vlt)
+
+p <- ggplot(VltDataSet) #,  aes(group, weight)) + geom_col(width = 1) #, aes(weight=Freq)) + ylab("") + ylim(0,2250)
+s <- p + aes(window1) + geom_bar()
+d <- p + aes(window2) + geom_bar()
+g <- p + aes(window3) + geom_bar()
+grid.arrange(s, d, g, nrow=1, widths=c(3, 2, 2))
+
+with(VltDataSet, table(window1))
+with(VltDataSet, table(window2))
+with(VltDataSet, table(window3))
+
+# Distribuția cifrelor este asemănătoare:
+# - pentru toate cele 3 ferestre cifra 4 lipsește
+# - pentru toate cele 3 ferestre cifrele mai mici decât 4 sunt mai frecvente decât cele mai mari decât 4
+# - mereu cifra 2 este mai frecventă decât cifra 3, iar cifra 6 apare mereu de mai puține ori decât cifra 6
+
+```
+ 
+> Exercițiul 4: Multiple sclerosis
+The dataset MSPatients in vcd provides information on the diagnoses of two
+neurologists from two different cities on two groups of patients, one from
+each city. 
+How do the distributions of the ratings of the neurologists compare?
+How would you describe their rating patterns? 
+Draw two barcharts with common scaling. 
+Before drawing the barcharts, reorder the categories into a sensible
+ordinal scale instead of the default alphabetical order. (Hint: initially using
+data.frame(as.table(MSPatients)) will put the dataset into a form
+that is easier to work with.)
+
+```{r message=FALSE}
+library("vcd")
+Patients <- data.frame(as.table(MSPatients))
+
+plotNewOrleans <- ggplot(Patients, aes(reorder(New.Orleans.Neurologist, -Freq), Freq)) + geom_bar(stat="identity") + ggtitle("New Orleans") + ylab("") + xlab("")
+plotWinnipeg <- ggplot(Patients, aes(reorder(Winnipeg.Neurologist, -Freq), Freq)) + geom_bar(stat="identity") + ggtitle("Winnipeg") + ylab("") + xlab("")
+grid.arrange(plotNewOrleans, plotWinnipeg, nrow=1)
+
+# Doctorul din New Orleans este mai reticent și are tendința de a acorda mai des rating-uri de "Probabil" și "Posibil"
+# Doctorul din Winnipeg are tendița de a acorda mai multe rating-ri de "Cert"
+```
+ 
+> Exercițiul 5: Occupational mobility
+According to the R help page, the Yamaguchi87 dataset in vcdExtra has become
+a classic for models comparing two-way mobility tables.
+(a) How do the distributions of occupations of the sons in the three countries
+compare?
+(b) How do the distributions of the sons’ and fathers’ occupations in the UK
+compare?
+(c) Are you surprised by the results or are they what you would have expected?
+
+```{r message=FALSE}
+library("vcdExtra")
+Yamaguchi87DataSet <- data.frame(Yamaguchi87)
+
+# plot(Freq~Son, data=subset(Yamaguchi87DataSet, Country=="US"))
+keepUS <- c("US")
+keepUK <- c("UK")
+keepJapan <- c("Japan")
+
+# a
+USData <- subset(Yamaguchi87DataSet, Country %in% keepUS)
+plotUS <- ggplot(USData, aes(Son, Freq)) + geom_bar(stat="identity") + ggtitle("US")
+
+UKData <- subset(Yamaguchi87DataSet, Country %in% keepUK)
+plotUK <- ggplot(UKData, aes(Son, Freq)) + geom_bar(stat="identity") + ggtitle("UK")
+
+JapanData <- subset(Yamaguchi87DataSet, Country %in% keepJapan)
+plotJapan <- ggplot(JapanData, aes(Son, Freq)) + geom_bar(stat="identity") + ggtitle("Japan")
+
+grid.arrange(plotUS, plotUK, plotJapan)
+
+# Se pot face următoarele observații:
+# - Ocupația etichetată cu "Farm" este cea cu frecvența cea mai mică în toate cele 3 țări
+# - Distribuția ocupațiilor în US și UK este asemănătoare (ocupațiile "UpNM" și "LoM" sunt mai frecvente decât "LoNM" și "UpM")
+# - Ocupația de "LoNM" este mai frecventă în Japonia decât în US și UK
+
+# b
+plotUKSons <- ggplot(UKData, aes(Son, Freq)) + geom_bar(stat="identity") + ggtitle("UK - Son")
+
+plotUKFathers <- ggplot(UKData, aes(Father, Freq)) + geom_bar(stat="identity") + ggtitle("UK - Father")
+
+grid.arrange(plotUKSons, plotUKFathers)
+
+# Ocupațiile sunt distribuite asemănător cu excepția ocupației de "UpNM" care este mai frecventă în rândul fiilor decât în rândul taților
+
+
+```
+ 
+> Exercițiul 6: Whisky
+The package bayesm includes the dataset Scotch, which reports which brands of
+whisky 2218 respondents consumed in the previous year.
+(a) Draw a barchart of the number of respondents per brand. What ordering of
+the brands do you think is best?
+(b) There are 20 named brands and a further category Other.brands. That
+entails drawing a lot of bars. If you decided to plot only the biggest brands
+individually and group the rest all together in the ‘Other’ group, what cutoff
+would you use for defining a big brand?
+(c) Another version of the dataset called whiskey is given in the package
+flexmix. It is made up of two data frames, whiskey with the basic data, and
+whiskey_brands with information on whether the whiskeys are blends or
+single malts. How would you incorporate this information in your graphics,
+by using colour, by using a different ordering, or by drawing two graphics
+rather than one?
+(d) Which of the spellings, ‘whisky’ or ‘whiskey’, is more appropriate for this
+dataset?
+
+```{r}
+library(bayesm)
+library(data.table)
+data(Scotch, package="bayesm")
+
+colSumsDataFrame <-data.frame(colSums(Scotch))
+colSumsDataFrameTranspose <- transpose(colSumsDataFrame)
+
+brands <- rownames(colSumsDataFrame)
+values <- as.numeric(as.vector(colSumsDataFrameTranspose[1,]))
+ScotchDataFrame <- data.frame(brands, values)
+
+ggplot(ScotchDataFrame, aes(brands, values))  + geom_bar(stat="identity")
+
+# a
+# ordonarea descrescătoare este optimă pentru a putea vedea ce brand-uri au frecvența mai mare
+ggplot(ScotchDataFrame, aes(reorder(brands, -values), values))  + geom_bar(stat="identity")  + ggtitle("Ordonare descrescătoare")
+
+# b
+# Un brand mai mare poate fi definit ca unul cu valori mai mari de 200
+ScotchDataFrame[ScotchDataFrame$values < 200] <- "REST"
+ggplot(ScotchDataFrame, aes(reorder(brands, -values), values))  + geom_bar(stat="identity")  + ggtitle("Ordonare descrescătoare")
+
+ScotchDataFrame <- within(ScotchDataFrame, st1 <- as.character(brands))
+ScotchDataFrame$brands[ScotchDataFrame$values < 200] <- "REST"
+ggplot(ScotchDataFrame, aes(reorder(brands, -values), values)) + geom_bar(stat="identity") +
+  xlab("") + ylab("") + ylim(0,1000)
+
+# c
+# install.packages("flexmix")
+# library(flexmix)
+# data(whiskey, package="flexmix")
+# whiskeyDataFrame <- data.frame(whiskey)
+
+# d
+# Forma în care este scrisă depinde de zona în care este folosit cuvântul, dar ar trebui alesă doar una dintre variante ca fiind validă pentru a nu se conduce la erori în interpretare
+
+```
+ 
+> Exercițiul 7: Choice of school
+The dataset GSOEP9402 in the package AER provides data on 675 14-year-old
+children in Germany. The data come from the German Socio-Economic Panel
+for the years 1994 to 2002.
+(a) Which variables are nominal, ordinal, or discrete?
+(b) Draw barcharts for the variables. Are any similar in form, and what explanations
+would you suggest for these similarities?
+(c) The variable meducation refers to the mother’s educational level in
+years. Would you describe it as ordinal or discrete, and how should it be
+displayed?
+(d) Summarise briefly the main information shown by your graphics.
+
+```{r message=FALSE}
+library(AER)
+data(GSOEP9402, package="AER")
+GSOEP9402DataSet <- data.frame(GSOEP9402)
+
+# a
+
+# Variabile:
+# - nominale: school, gender, state, education, employment, income
+# - ordinale: parity, size, marital
+# - discrete: birthyear, kids, year
+
+# b
+s1 <- ggplot(GSOEP9402, aes(school)) + geom_bar() + ylab("")
+s2 <- ggplot(GSOEP9402, aes(birthyear)) + geom_bar() + ylab("")
+s3 <- ggplot(GSOEP9402, aes(gender)) + geom_bar() + ylab("")
+s4 <- ggplot(GSOEP9402, aes(kids)) + geom_bar() + ylab("")
+s5 <- ggplot(GSOEP9402, aes(parity)) + geom_bar() + ylab("")
+s6 <- ggplot(GSOEP9402, aes(income)) + geom_bar() + ylab("")
+s7 <- ggplot(GSOEP9402, aes(size)) + geom_bar() + ylab("")
+s8 <- ggplot(GSOEP9402, aes(state)) + geom_bar() + ylab("")
+s9 <- ggplot(GSOEP9402, aes(marital)) + geom_bar() + ylab("")
+s10 <- ggplot(GSOEP9402, aes(meducation)) + geom_bar() + ylab("")
+s11 <- ggplot(GSOEP9402, aes(memployment)) + geom_bar() + ylab("")
+s12 <- ggplot(GSOEP9402, aes(year)) + geom_bar() + ylab("")
+
+grid.arrange(s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, ncol=3)
+
+# c
+# Nu este o variabilă ordinală deoarece nu ia o valoare dintr-o listă bine stabilită (exemplu: vârsta care poate impartita in "tanar", "varsta-mijlocie" si "batran")
+# Dar nu este nici  variabila discreta pentru ca ia valori numere reale
+# Deci este o variabila nominala si poate fi vizualizata cu ajutorul unui barchart
+
+# d
+# Școala Gymnasium a avut cei mai mulți studenți participanți la studiu
+# Anul nașterii este distribuit relativ egal
+# Numărul de participanți de gen n]masculin este apropiat de numărul de participanți de gen feminin
+# Cei mai mulți participanti au 2 copii
+
+```
+ 
+> Exercițiul 8: Election results
+The Bavarian election of Autumn 2013 was a triumph for the CSU party, as they
+obtained an absolute majority for the first time for several years. This was partly
+because some parties failed to get 5% of the votes or more and could therefore
+not win any seats in parliament. A few observers commented that the real winners
+were the group who did not vote at all, as they made up a higher proportion of
+the electorate than the CSU supporters. The percentages reported were as follows
+(where the party percentages refer to their share of the actual vote): ‘didn’t vote’
+36.7%, CSU 47.7%, SPD 20.6%, FW 9.0%, Grüne 8.6%, FDP 3.3%, BP 2.1%,
+Linke 2.1%, ÖDP 2.0%, Pirates 2.0%, Rest 2.5%.
+(a) Draw graphics to present these results both with and without the group of
+non-voters. What headlines would you give your graphics if you were to
+publish them in a newspaper?
+(b) It is, of course, not necessary to list all the parties, especially when several
+of them were excluded by the 5% rule. Which ones would you leave out
+and why?
+(c) Seats are won by the parties with over 5% of the vote, based on their share
+of the total votes of qualifying parties. The rules are actually more complicated
+than that, but these complications can be neglected here. There are
+180 seats in all. Draw a graphic showing the seat distribution, using the
+available figures. What headline would you suggest for this graphic?
+(d) You have probably noticed that the percentages do not add up to 100%. Is
+this a problem and what might you do about it?
+
+```{r message=FALSE}
+Party <- c("didn’t vote", "CSU", "SPD", "FW", "Grüne", "FDP", "BP", "Linke", "ÖDP", "Pirates", "Rest")
+p <- c(36.7, 47.7, 20.6, 9.0, 8.6, 3.3, 2.1, 2.1, 2.0, 2.0, 2.5)
+alegeri <- data.frame(Party, p)
+
+alegeri <- within(alegeri, {
+  percwith <- p/sum(p)
+  percnot <- p/sum(p[-7])})
+par(mfrow=c(2,1), mar = c(2.1, 2.1, 2.1, 2.1))
+with(alegeri, pie(percwith, labels=Party, clockwise=TRUE,
+               col=c("blue", "red", "darkgreen", "black",
+                     "grey", "lightgreen", "white"), radius=1))
+
+Party1 <- c("CSU", "SPD", "FW", "Grüne", "FDP", "BP", "Linke", "ÖDP", "Pirates", "Rest")
+p1 <- c(47.7, 20.6, 9.0, 8.6, 3.3, 2.1, 2.1, 2.0, 2.0, 2.5)
+alegeri1 <- data.frame(Party1, p1)
+alegeri1 <- within(alegeri1, {
+  percwith <- p1/sum(p1)
+  percnot <- p1/sum(p1[-7])})
+with(alegeri1, pie(percnot[-7], labels=Party1, clockwise=TRUE,
+               col=c("blue", "red", "darkgreen", "black",
+                     "grey", "lightgreen"), radius=1))
+# Titlul pentru graficul care îi include pe cei nehotărâți: "Oricare dintre SPD și CSU ar fi putut câștiga"
+# Titlu pentru graficul care nu îi include pe cei nehotărâți: "CSU a fost partidul favorit"
+
+# b
+# Partidele care pot fi excluse: "FDP", "BP", "Linke", "ÖDP", "Pirates", "Rest"
+# Motiv: dețin un procent foarte mic
+
+# c
+noOfSeats <- 180
+Party2 <- c("CSU", "SPD", "FW", "Grüne")
+seatsCSU <- round(noOfSeats * (47.7/100), digits = 0)
+seatsSPD <- round(noOfSeats * (20.6/100), digits = 0)
+seatsFW <- round(noOfSeats * (9.0/100), digits = 0)
+seatsGrune <- round(noOfSeats * (8.6/100), digits = 0)
+no <- c(seatsCSU, seatsSPD, seatsFW, seatsGrune)
+
+locuri <- data.frame(Party2, no)
+ggplot(locuri, aes(Party2, no)) + geom_bar(stat="identity") + xlab("Partide") + ylab("Numar locuri") + ggtitle("Numar locuri ")
+
+```
+ 
+> Exercițiul 9: Horsekicks
+In his discussion of the deaths due to horsekicks in the Prussian army, von
+Bortkiewicz pointed out that four of the corps (G, I, VI, and XI) were bigger
+than the others.
+(a) Draw two plots, one for the numbers of deaths each year for the four bigger
+corps and one for the other corps. What vertical scale do you think is
+appropriate for comparing the two plots?
+(b) Estimate the parameter of a Poisson distribution for the other corps. Carry
+out a test to see if a Poisson distribution with that would be an acceptable
+fit for the four bigger corps.
+
+```{r message=FALSE}
+data(VonBort, package="vcd")
+vonBortDataSet <- data.frame(VonBort)
+
+keep <- c("G", "I", "VI", "XI")
+
+# a
+bigCorpsData <- subset(vonBortDataSet, corps %in% keep)
+ggplot(bigCorpsData, aes(year, deaths)) + geom_bar(stat="identity") + ggtitle("G, I, VI, XI")
+# vonBortDataSetEx <- vonBortDataSet[!(vonBortDataSet$corps=="G" & vonBortDataSet$corps=="I" & vonBortDataSet$corps=="VI" & vonBortDataSet$corps=="XI"),]
+ggplot(vonBortDataSet, aes(year, deaths)) + geom_bar(stat="identity") + ggtitle("All")
+
+
+# b
+gf <- goodfit(table(bigCorpsData$deaths))
+summary(gf)
+```
+ 
+> Exercițiul 10: Intermission
+Edward Hopper’s Nighthawks hangs in the Art Insitute of Chicago. What are the
+main features of this painting and is it typical of Hopper’s work?
+
+Ca și în cazul graficelor, o pictură este o reprezentare vizuală din care se pot deduce multe informații. 
+Din tabloul Nighthawks se poate deduce o stare de singurătate, izolare și regret, care este specifică lucrărilor lui Edward Hopper.
+ 
+
